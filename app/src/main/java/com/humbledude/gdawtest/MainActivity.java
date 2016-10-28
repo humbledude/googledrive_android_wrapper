@@ -1,7 +1,9 @@
 package com.humbledude.gdawtest;
 
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentSender;
+import android.os.Handler;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
@@ -16,7 +18,9 @@ import android.widget.Toast;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GooglePlayServicesUtil;
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.ResultCallback;
 import com.google.android.gms.drive.Drive;
+import com.google.android.gms.drive.DriveFolder;
 import com.humbledude.googledriveandroidwrapper.GoogleDriveAndroidWrapper;
 
 import java.util.ArrayList;
@@ -26,8 +30,10 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         GoogleApiClient.OnConnectionFailedListener{
     private static final String TAG = "GDTest";
 
+    private Context mContext;
     private ListView mListView;
     private ArrayAdapter<String> mArrayAdapter;
+    private Handler mHandler;
 
     private GoogleDriveAndroidWrapper gdaw;
 
@@ -38,6 +44,8 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        mContext = this.getApplicationContext();
+        mHandler = new Handler();
 
         mListView = (ListView) findViewById(R.id.list_item);
         mArrayAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
@@ -55,6 +63,8 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
         functions.add("create new text file");
         functions.add("query with file name");
         functions.add("create file in folder");
+        functions.add("write");
+        functions.add("append");
 
         mListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
@@ -87,6 +97,41 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
                         break;
                     case 5:
                         gdaw.createFileInFolder("file", "folder1/folder2");
+                    case 6:
+                        gdaw.write("file", "folder1/folder2", "hellohello", new ResultCallback<DriveFolder.DriveFileResult>() {
+                            @Override
+                            public void onResult(@NonNull DriveFolder.DriveFileResult driveFileResult) {
+                                if (driveFileResult.getStatus().isSuccess()) {
+                                    mHandler.post(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            Toast.makeText(mContext, "write success", Toast.LENGTH_SHORT).show();
+
+                                        }
+                                    });
+
+                                }
+                                Log.i(TAG, "done");
+                            }
+                        });
+                        break;
+                    case 7:
+                        gdaw.append("file", "folder1/folder2", "hellohellohellllllo", new ResultCallback<DriveFolder.DriveFileResult>() {
+                            @Override
+                            public void onResult(@NonNull DriveFolder.DriveFileResult driveFileResult) {
+                                if (driveFileResult.getStatus().isSuccess()) {
+                                    mHandler.post(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            Toast.makeText(mContext, "append success", Toast.LENGTH_SHORT).show();
+
+                                        }
+                                    });
+
+                                }
+                                Log.i(TAG, "done");
+                            }
+                        });
                         break;
                 }
 

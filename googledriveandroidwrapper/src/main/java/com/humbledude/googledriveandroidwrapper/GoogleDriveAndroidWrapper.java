@@ -3,14 +3,18 @@ package com.humbledude.googledriveandroidwrapper;
 import android.content.Context;
 import android.content.IntentSender;
 import android.os.AsyncTask;
+import android.os.ParcelFileDescriptor;
 import android.support.annotation.NonNull;
 import android.util.Log;
 import android.widget.Toast;
 
 import com.google.android.gms.common.api.GoogleApiClient;
+import com.google.android.gms.common.api.PendingResult;
 import com.google.android.gms.common.api.ResultCallback;
+import com.google.android.gms.common.api.Status;
 import com.google.android.gms.drive.Drive;
 import com.google.android.gms.drive.DriveApi;
+import com.google.android.gms.drive.DriveFile;
 import com.google.android.gms.drive.DriveFolder;
 import com.google.android.gms.drive.DriveId;
 import com.google.android.gms.drive.Metadata;
@@ -20,6 +24,8 @@ import com.google.android.gms.drive.query.Filters;
 import com.google.android.gms.drive.query.Query;
 import com.google.android.gms.drive.query.SearchableField;
 
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
@@ -157,6 +163,7 @@ public class GoogleDriveAndroidWrapper {
                         .build();
                 MetadataBuffer result = Drive.DriveApi.query(mGoogleApiClient, query).await().getMetadataBuffer();
                 logMetadataBuffer(result);
+                result.release();
 
                 return null;
             }
@@ -184,6 +191,125 @@ public class GoogleDriveAndroidWrapper {
         }.execute();
     }
 
+    public void write(final String fileName, final String path, final String contents,
+                      final ResultCallback<DriveFolder.DriveFileResult> callback) {
+        new AsyncTask<Void, Void, Void>() {
+
+            @Override
+            protected Void doInBackground(Void... params) {
+
+                // walk into the folder
+                DriveId rootId = Drive.DriveApi.getRootFolder(mGoogleApiClient).getDriveId();
+                DriveFolder rootFolder = rootId.asDriveFolder();
+
+                DriveFolder targetFolder = stepIntoFolder(rootFolder, path);
+
+                // create a new drive content
+                DriveApi.DriveContentsResult contentsResult = Drive.DriveApi.newDriveContents(mGoogleApiClient).await();
+
+                OutputStream outputStream = contentsResult.getDriveContents().getOutputStream();
+                Writer writer = new OutputStreamWriter(outputStream);
+                try {
+                    writer.write(contents);
+                    writer.close();
+                } catch (IOException e) {
+                    Log.e(TAG, e.getMessage());
+                }
+
+                MetadataChangeSet changeSet = new MetadataChangeSet.Builder()
+                        .setTitle(fileName)
+                        .build();
+
+                // finally, create a file
+                targetFolder.createFile(mGoogleApiClient,
+                        changeSet, contentsResult.getDriveContents())
+                        .setResultCallback(callback);
+
+                return null;
+            }
+        }.execute();
+    }
+
+    public void append(final String fileName, final String path, final String contents,
+                      final ResultCallback<DriveFolder.DriveFileResult> callback) {
+        new AsyncTask<Void, Void, Void>() {
+
+            @Override
+            protected Void doInBackground(Void... params) {
+                // walk into the folder
+                DriveId rootId = Drive.DriveApi.getRootFolder(mGoogleApiClient).getDriveId();
+                DriveFolder rootFolder = rootId.asDriveFolder();
+
+                DriveFolder targetFolder = stepIntoFolder(rootFolder, path);
+
+                // find the fileName
+                MetadataBuffer result = targetFolder.listChildren(mGoogleApiClient).await().getMetadataBuffer();
+                DriveId fileId = null;
+                Iterator<Metadata> i = result.iterator();
+                while (i.hasNext()) {
+                    Metadata data = i.next();
+                    if (fileName.equals(data.getTitle())) {
+                        fileId = data.getDriveId();
+                        break;
+                    }
+                }
+
+                result.release();
+
+                if (fileId == null) {
+                    // create new file
+                    DriveApi.DriveContentsResult contentsResult = Drive.DriveApi.newDriveContents(mGoogleApiClient).await();
+
+                    OutputStream outputStream = contentsResult.getDriveContents().getOutputStream();
+                    Writer writer = new OutputStreamWriter(outputStream);
+                    try {
+                        writer.write(contents);
+                        writer.close();
+                    } catch (IOException e) {
+                        Log.e(TAG, e.getMessage());
+                    }
+
+                    MetadataChangeSet changeSet = new MetadataChangeSet.Builder()
+                            .setTitle(fileName)
+                            .build();
+
+                    targetFolder.createFile(mGoogleApiClient,
+                            changeSet, contentsResult.getDriveContents())
+                            .setResultCallback(callback);
+
+                    return null;
+                } else {
+                    // fetch the file
+                    DriveApi.DriveContentsResult contentsResult = fileId.asDriveFile().open(mGoogleApiClient, DriveFile.MODE_READ_WRITE, null).await();
+                    if (!contentsResult.getStatus().isSuccess()) {
+                        // fail..
+                        return null;
+                    }
+
+                    try {
+                        ParcelFileDescriptor fileDescriptor = contentsResult.getDriveContents().getParcelFileDescriptor();
+                        FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
+                        inputStream.read(new byte[inputStream.available()]);
+
+                        // append to the file
+                        FileOutputStream outputStream = new FileOutputStream(fileDescriptor.getFileDescriptor());
+                        Writer writer = new OutputStreamWriter(outputStream);
+                        writer.write(contents);
+                        writer.close();
+                        com.google.android.gms.common.api.Status status = contentsResult.getDriveContents().commit(mGoogleApiClient, null).await();
+
+                        Log.i(TAG, "WHAT???" + status.isSuccess());
+                    } catch (IOException e) {
+                        Log.e(TAG, e.getMessage());
+                    }
+
+                    return null;
+                }
+            }
+        }.execute();
+
+    }
+
 
     private DriveFolder stepIntoFolder(DriveFolder currFolder, String path) {
         String[] nextFolder = splitFirstFolder(path);
@@ -205,6 +331,8 @@ public class GoogleDriveAndroidWrapper {
                 next = data.getDriveId().asDriveFolder();
             }
         }
+
+        result.release();
 
         if (next == null) {
             MetadataChangeSet changeSet = new MetadataChangeSet.Builder()
